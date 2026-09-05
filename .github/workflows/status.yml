@@ -1,0 +1,53 @@
+name: Statussida (publicerar orderstatus på GitHub Pages)
+
+# Bygger en enkel HTML-sida (src/status_page_job.py) med ordernummer,
+# leverantör, status och tider — MEDVETET utan kunduppgifter, eftersom en
+# GitHub Pages-sida alltid är offentligt nåbar. Se docs/OPPNA_FRAGOR.md
+# punkt 11.
+#
+# GitHub Pages går INTE att bygga direkt från det här (privata) repot på
+# gratisplanen — det kräver antingen en betald plan eller ett publikt
+# repo (se docs/OPPNA_FRAGOR.md punkt 11 för källor). Lösningen här: den
+# färdiga sidan pushas till ett SEPARAT, litet publikt repo som bara
+# innehåller den genererade filen — inget av källkoden eller
+# konfigurationen i det här repot blir publik. Det publika repot har sin
+# egen GitHub Pages-inställning ("Deploy from a branch", se README.md).
+
+on:
+  schedule:
+    - cron: "25 * * * *"   # varje timme, minut 25 — efter synk och export
+  workflow_dispatch: {}
+
+jobs:
+  publicera-statussida:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - run: python -m src.status_page_job
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: Checka ut det publika statusside-repot
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.STATUS_REPO }}
+          token: ${{ secrets.STATUS_PUSH_TOKEN }}
+          path: status-repo
+
+      - name: Publicera (kopiera in och pusha om något ändrats)
+        run: |
+          cp public/index.html status-repo/index.html
+          cd status-repo
+          git config user.name "Statussida (automatisk)"
+          git config user.email "actions@users.noreply.github.com"
+          git add index.html
+          if git diff --cached --quiet; then
+            echo "Ingen förändring sedan förra timmen — inget att pusha."
+          else
+            git commit -m "Uppdatera statussida $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            git push
+          fi
